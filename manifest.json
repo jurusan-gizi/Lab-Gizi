@@ -1,0 +1,15 @@
+{
+  "name": "SILAB Gizi — Jurusan Gizi Poltekkes Kemenkes Makassar",
+  "short_name": "SILAB Gizi",
+  "description": "Peminjaman alat, stok bahan, dan jadwal laboratorium Jurusan Gizi",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F3F7F6",
+  "theme_color": "#00988F",
+  "lang": "id",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

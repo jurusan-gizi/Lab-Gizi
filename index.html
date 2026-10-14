@@ -1434,7 +1434,7 @@ document.addEventListener('submit', async e => {
 // pesan error sudah tampil lewat toast; cegah log 'unhandled rejection'
 window.addEventListener('unhandledrejection', e => e.preventDefault());
 mulaiSilab();
-/** Login sekali: kalau mahasiswa sudah masuk di Gizi-Link, langsung masuk ke SILAB. */
+/** Login sekali: kalau sudah masuk di Gizi-Link, sesi SILAB dibuat otomatis lalu halaman depan ditampilkan. */
 async function mulaiSilab() {
   const sso = window.GiziSSO && !isDemo() ? GiziSSO.get() : null;
   if (sso) {
@@ -1451,8 +1451,6 @@ async function mulaiSilab() {
         return renderCover();
       }
     }
-    const now = store.get('silab_sess');
-    if (now && now.user && now.user.peran === 'mahasiswa') return enterApp();
   }
   const staf = window.GiziSSO && GiziSSO.getStaf && !isDemo() ? GiziSSO.getStaf() : null;
   if (staf && staf.silab) {
@@ -1468,9 +1466,10 @@ async function mulaiSilab() {
         return renderCover();
       }
     }
-    return enterApp();
   }
-  renderCover(); // aplikasi dibuka dari halaman depan
+  // Sesudah masuk otomatis tetap tampilkan halaman depan (panduan, daftar lab & PLP, SOP).
+  // Tombol "Lanjutkan sebagai …" di halaman depan langsung membuka aplikasi tanpa login lagi.
+  renderCover();
 }
 if ('serviceWorker' in navigator && location.protocol === 'https:' && !/claude|anthropic/.test(location.hostname)) {
   navigator.serviceWorker.register('sw.js').catch(() => { });

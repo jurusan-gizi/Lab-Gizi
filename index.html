@@ -472,8 +472,7 @@ const Demo = (() => {
         out.bahan = [];
         out.mutasi = [];
       } else {
-        const lab = u.peran === 'plp' ? u.id_lab : null;
-        out.pinjam = lab ? db.pinjam.filter(x => x.id_lab === lab) : db.pinjam;
+        out.pinjam = u.peran === 'plp' ? db.pinjam.filter(x => punyaLab(u, x.id_lab)) : db.pinjam;
         out.bahan = db.bahan.filter(b => b.status !== 'Nonaktif');
         out.mutasi = db.mutasi;
       }
@@ -506,7 +505,7 @@ const Demo = (() => {
     },
     aksiPinjam(db, p, u) {
       const r = db.pinjam.find(x => x.id === p.id); if (!r) err('Permohonan tidak ditemukan.');
-      const isStaff = u.peran === 'admin' || (u.peran === 'plp' && u.id_lab === r.id_lab);
+      const isStaff = u.peran === 'admin' || (u.peran === 'plp' && punyaLab(u, r.id_lab));
       const own = r.id_user === u.id_user;
       const need = (cond, msg) => { if (!cond) err(msg); };
       switch (p.aksi) {
@@ -539,11 +538,11 @@ const Demo = (() => {
     },
     simpanAlat(db, p, u) {
       if (u.peran === 'mahasiswa') err('Tidak diizinkan.');
-      const a = p.alat; const lab = u.peran === 'plp' ? u.id_lab : a.id_lab;
+      const a = p.alat; const lab = u.peran === 'plp' ? labPlp(u, a.id_lab) : a.id_lab;
       if (!a.nama || !lab) err('Nama alat dan lab wajib diisi.');
       if (a.kode) {
         const x = db.alat.find(r => r.kode === a.kode); if (!x) err('Alat tidak ditemukan.');
-        if (u.peran === 'plp' && x.id_lab !== u.id_lab) err('Bukan alat lab Anda.');
+        if (u.peran === 'plp' && !punyaLab(u, x.id_lab)) err('Bukan alat lab Anda.');
         Object.assign(x, { nama: a.nama, merk: a.merk, satuan: a.satuan, jml_total: +a.jml_total, jml_rusak: +a.jml_rusak, lokasi: a.lokasi, tahun: a.tahun, status: a.status || 'Aktif', catatan: a.catatan || '' });
         if (p.foto) x.foto_url = p.foto; return { kode: x.kode };
       }
@@ -553,7 +552,7 @@ const Demo = (() => {
     },
     simpanBahan(db, p, u) {
       if (u.peran === 'mahasiswa') err('Tidak diizinkan.');
-      const b = p.bahan; const lab = u.peran === 'plp' ? u.id_lab : b.id_lab;
+      const b = p.bahan; const lab = u.peran === 'plp' ? labPlp(u, b.id_lab) : b.id_lab;
       if (!b.nama || !lab) err('Nama bahan dan lab wajib diisi.');
       if (b.kode) {
         const x = db.bahan.find(r => r.kode === b.kode); if (!x) err('Bahan tidak ditemukan.');
@@ -568,7 +567,7 @@ const Demo = (() => {
     mutasiBahan(db, p, u) {
       if (u.peran === 'mahasiswa') err('Tidak diizinkan.');
       const b = db.bahan.find(x => x.kode === p.kode_bahan); if (!b) err('Bahan tidak ditemukan.');
-      if (u.peran === 'plp' && b.id_lab !== u.id_lab) err('Bukan bahan lab Anda.');
+      if (u.peran === 'plp' && !punyaLab(u, b.id_lab)) err('Bukan bahan lab Anda.');
       const j = Number(p.jumlah); if (!(j > 0)) err('Jumlah harus lebih dari 0.');
       if (p.jenis === 'Keluar' && j > b.stok) err(`Stok tidak cukup (sisa ${b.stok} ${b.satuan}).`);
       b.stok = p.jenis === 'Masuk' ? Number(b.stok) + j : Number(b.stok) - j;
@@ -600,7 +599,7 @@ const Demo = (() => {
     },
     aksiBooking(db, p, u) {
       const b = db.booking.find(x => x.id === p.id); if (!b) err('Jadwal tidak ditemukan.');
-      const isStaff = u.peran === 'admin' || (u.peran === 'plp' && u.id_lab === b.id_lab);
+      const isStaff = u.peran === 'admin' || (u.peran === 'plp' && punyaLab(u, b.id_lab));
       if (p.aksi === 'batal' && b.id_user === u.id_user && b.status === 'Menunggu') b.status = 'Dibatalkan';
       else if (isStaff && p.aksi === 'setujui') b.status = 'Disetujui';
       else if (isStaff && p.aksi === 'tolak') { b.status = 'Ditolak'; b.catatan = p.alasan || ''; }
@@ -683,6 +682,13 @@ async function api(action, payload = {}) {
   return j.data;
 }
 
+/* ---------- PLP bisa memegang lebih dari satu lab ----------
+   Kolom id_lab di sheet User boleh berisi beberapa kode dipisah koma, mis. "ORG,PGN". */
+function labsOf(u) { return String((u && u.id_lab) || '').split(/[,;]/).map(s => s.trim()).filter(Boolean); }
+function punyaLab(u, idLab) { return labsOf(u).indexOf(String(idLab || '').trim()) >= 0; }
+/** Lab untuk data baru milik PLP: satu lab = otomatis; beberapa lab = harus salah satu miliknya. */
+function labPlp(u, pilihan) { const L = labsOf(u); return L.length === 1 ? L[0] : (punyaLab(u, pilihan) ? String(pilihan).trim() : ''); }
+
 /* ===================== STATE ===================== */
 const S = {
   user: null, token: null, data: null, view: null, lab: 'ALL', q: '', filter: 'aksi',
@@ -691,8 +697,13 @@ const S = {
 const isStaff = () => S.user && S.user.peran !== 'mahasiswa';
 const labName = id => (S.data?.labs.find(l => l.id_lab === id) || {}).nama_lab || id;
 const labShort = id => labName(id).replace(/^Lab\.\s*/, '');
-const scopeLab = () => S.user.peran === 'plp' ? S.user.id_lab : (S.lab === 'ALL' ? null : S.lab);
-const inScope = r => !scopeLab() || r.id_lab === scopeLab();
+const isPlp = () => S.user && S.user.peran === 'plp';
+const myLabs = () => labsOf(S.user);
+/** Lab yang sedang dilihat: PLP satu lab = lab itu; PLP beberapa lab = lab yang dipilih (atau semua lab miliknya). */
+const scopeLab = () => isPlp()
+  ? (myLabs().length === 1 ? myLabs()[0] : (myLabs().includes(S.lab) ? S.lab : null))
+  : (S.lab === 'ALL' ? null : S.lab);
+const inScope = r => { const s = scopeLab(); if (s) return r.id_lab === s; return isPlp() ? myLabs().includes(r.id_lab) : true; };
 const tersedia = a => Math.max(0, a.jml_total - a.jml_rusak - (S.data.terpakai[a.kode] || 0));
 const itemsOf = id => S.data.detail.filter(d => d.id_pinjam === id);
 const isLate = p => p.status === 'Dipinjam' && p.tgl_kembali < today();
@@ -882,7 +893,7 @@ function render() {
   if (!S.user) return renderCover();
   const V = { katalog: vKatalog, pinjam: vPinjam, permohonan: vPermohonan, jadwal: vJadwal, dash: vDash, alat: vAlat, bahan: vBahan };
   if (!V[S.view]) S.view = isStaff() ? 'dash' : 'katalog';
-  const roleTxt = S.user.peran === 'plp' ? 'PLP · ' + labShort(S.user.id_lab) : S.user.peran === 'admin' ? 'Admin' : 'Mahasiswa';
+  const roleTxt = S.user.peran === 'plp' ? 'PLP · ' + myLabs().map(labShort).join(', ') : S.user.peran === 'admin' ? 'Admin' : 'Mahasiswa';
   document.getElementById('app').innerHTML = `
   <header class="top"><div class="top-in">
     <div class="logo-chip"><img src="${LOGO}" alt="Kemenkes Poltekkes Makassar"></div>
@@ -898,8 +909,8 @@ function render() {
 
 /* ---------- Lab chips (admin & pengguna) ---------- */
 function labChips(all = true) {
-  if (S.user.peran === 'plp') return '';
-  const labs = S.data.labs;
+  if (isPlp() && myLabs().length < 2) return '';
+  const labs = isPlp() ? S.data.labs.filter(l => myLabs().includes(l.id_lab)) : S.data.labs;
   return `<div class="chips" role="group" aria-label="Pilih lab">${all ? `<button class="chip" data-lab="ALL" aria-pressed="${S.lab === 'ALL'}">Semua lab</button>` : ''}
     ${labs.map(l => `<button class="chip" data-lab="${l.id_lab}" aria-pressed="${S.lab === l.id_lab}">${esc(l.nama_lab.replace(/^Lab\.\s*/, ''))}</button>`).join('')}</div>`;
 }
@@ -1107,9 +1118,9 @@ function sopLink(l, small) {
 }
 let calMonth = null, calDay = null;
 function vJadwal() {
-  const t0 = today(); const lab = S.user.peran === 'plp' ? S.user.id_lab : S.lab;
+  const t0 = today(); const lab = scopeLab() || 'ALL';
   if (!calMonth) calMonth = t0.slice(0, 7);
-  const aktif = b => (lab === 'ALL' || b.id_lab === lab) && !['Dibatalkan', 'Ditolak'].includes(b.status);
+  const aktif = b => (lab === 'ALL' ? inScope(b) : b.id_lab === lab) && !['Dibatalkan', 'Ditolak'].includes(b.status);
   const all = S.data.booking.filter(aktif);
   // kalender bulanan
   const [y, m] = calMonth.split('-').map(Number);
@@ -1137,7 +1148,7 @@ function vJadwal() {
   <div class="row"><p class="section-title grow">${calDay ? fday(calDay) : '30 hari ke depan'}</p>${calDay ? '<button class="btn sm" data-day="">Tampilkan semua</button>' : ''}</div>
   ${Object.keys(byDay).length ? Object.entries(byDay).map(([d, bs]) => `<div class="list">${calDay ? '' : `<p class="section-title">${d === t0 ? 'Hari ini · ' : ''}${fday(d)}</p>`}
     ${bs.map(b => {
-      const staffOK = isStaff() && (S.user.peran === 'admin' || S.user.id_lab === b.id_lab);
+      const staffOK = isStaff() && (S.user.peran === 'admin' || punyaLab(S.user, b.id_lab));
       return `<div class="card list" style="gap:6px">
         <div class="row"><b class="small">${esc(waktuLbl(b))}</b><span class="grow"></span><span class="pill ${b.status === 'Disetujui' ? 'p-ok' : 'p-wait'}">${b.status}</span></div>
         <div class="ttl">${esc(b.kegiatan)}</div>
@@ -1149,8 +1160,8 @@ function vJadwal() {
     }).join('')}</div>`).join('') : `<div class="empty">Belum ada jadwal${calDay ? ' di tanggal ini' : ''}.</div>`}`;
 }
 function formBooking(labId) {
-  const labs = S.user.peran === 'plp' ? S.data.labs.filter(l => l.id_lab === S.user.id_lab) : S.data.labs;
-  const def = labId || (S.lab !== 'ALL' ? S.lab : (S.user.id_lab || labs[0].id_lab));
+  const labs = isPlp() ? S.data.labs.filter(l => myLabs().includes(l.id_lab)) : S.data.labs;
+  const def = labId || (S.lab !== 'ALL' && labs.some(l => l.id_lab === S.lab) ? S.lab : labs[0].id_lab);
   const lab = S.data.labs.find(l => l.id_lab === def); const sesiMode = lab.mode_jadwal === 'sesi'; const kap = lab.kapasitas || 50;
   const prev = id => $('#' + id)?.value;
   const v = { keg: prev('bKeg') || '', kls: prev('bKls') || (S.user.kelas ? `${String(S.user.prodi).split(' - ')[0]} ${String(S.user.kelas).replace(/^kelas\s*/i, '')}` : ''), dos: prev('bDos') || '', tgl: prev('bTgl') || (calDay && calDay >= today() ? calDay : addDays(today(), 1)), jml: prev('bJml') || '' };
@@ -1200,7 +1211,7 @@ function vDash() {
   const top = Object.entries(usage).sort((a, b) => b[1] - a[1]).slice(0, 5); const maxU = top[0]?.[1] || 1;
   const jadwal = S.data.booking.filter(b => inScope(b) && b.tanggal === today() && b.status === 'Disetujui').sort((a, b) => a.jam_mulai.localeCompare(b.jam_mulai));
   const K = (v, l, c, go) => `<button class="kpi" style="--k:${c}" data-nav="${go}"><span class="v">${fnum(v)}</span><span class="l">${l}</span></button>`;
-  const scopeTxt = scopeLab() ? labName(scopeLab()) : 'Semua laboratorium';
+  const scopeTxt = scopeLab() ? labName(scopeLab()) : (isPlp() ? 'Lab ' + myLabs().map(labShort).join(' & ') : 'Semua laboratorium');
   return `<div class="page-head"><div><h2>Dashboard</h2><p>${esc(scopeTxt)} · ${fday(today())}</p></div>
     <button class="btn" data-act="export">${ico('dl')} Rekap CSV</button></div>
   ${labChips()}
@@ -1247,7 +1258,7 @@ function vAlat() {
 let fotoData = null;
 function formAlat(kode) {
   const a = kode ? S.data.alat.find(x => x.kode === kode) : { nama: '', merk: '', satuan: 'unit', jml_total: 1, jml_rusak: 0, lokasi: '', tahun: new Date().getFullYear(), catatan: '' };
-  const labSel = S.user.peran === 'admin' && !kode ? `<div class="field"><label for="aLab">Laboratorium</label><select id="aLab">${S.data.labs.map(l => `<option value="${l.id_lab}" ${l.id_lab === S.lab ? 'selected' : ''}>${esc(l.nama_lab)}</option>`).join('')}</select></div>` : '';
+  const labSel = (S.user.peran === 'admin' || myLabs().length > 1) && !kode ? `<div class="field"><label for="aLab">Laboratorium</label><select id="aLab">${S.data.labs.filter(l => !isPlp() || myLabs().includes(l.id_lab)).map(l => `<option value="${l.id_lab}" ${l.id_lab === S.lab ? 'selected' : ''}>${esc(l.nama_lab)}</option>`).join('')}</select></div>` : '';
   fotoData = null;
   modal(`${head(kode ? 'Ubah data alat' : 'Tambah alat baru', kode ? `<span class="mono">${esc(kode)}</span>` : 'Kode alat dan QR dibuat otomatis.')}<form id="fAlat" class="list">
     ${labSel}
@@ -1300,7 +1311,7 @@ function vBahan() {
 }
 function formBahan(kode) {
   const b = kode ? S.data.bahan.find(x => x.kode === kode) : { nama: '', satuan: 'g', stok: 0, stok_min: 0, exp_date: '', b3: 'Tidak', lokasi: '' };
-  const labSel = S.user.peran === 'admin' && !kode ? `<div class="field"><label for="bhLab">Laboratorium</label><select id="bhLab">${S.data.labs.map(l => `<option value="${l.id_lab}" ${l.id_lab === S.lab ? 'selected' : ''}>${esc(l.nama_lab)}</option>`).join('')}</select></div>` : '';
+  const labSel = (S.user.peran === 'admin' || myLabs().length > 1) && !kode ? `<div class="field"><label for="bhLab">Laboratorium</label><select id="bhLab">${S.data.labs.filter(l => !isPlp() || myLabs().includes(l.id_lab)).map(l => `<option value="${l.id_lab}" ${l.id_lab === S.lab ? 'selected' : ''}>${esc(l.nama_lab)}</option>`).join('')}</select></div>` : '';
   modal(`${head(kode ? 'Ubah data bahan' : 'Tambah bahan baru', kode ? `<span class="mono">${esc(kode)}</span> · stok diubah lewat Masuk/Keluar` : '')}<form id="fBhn" class="list">${labSel}
     <div class="field"><label for="hNama">Nama bahan</label><input id="hNama" required value="${esc(b.nama)}"></div>
     <div class="grid3"><div class="field"><label for="hSat">Satuan</label><select id="hSat">${['g', 'kg', 'ml', 'L', 'butir', 'botol', 'pak', 'tablet', 'lembar'].map(s => `<option ${s === b.satuan ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
@@ -1351,7 +1362,7 @@ function exportCSV() {
 /* ===================== AKUN ===================== */
 function openAkun() {
   const u = S.user;
-  modal(`${head(esc(u.nama), `<span class="mono">${esc(u.id_user)}</span> · ${u.peran === 'plp' ? 'PLP ' + esc(labName(u.id_lab)) : u.peran === 'admin' ? 'Admin / Kepala Lab' : 'Mahasiswa'}`)}
+  modal(`${head(esc(u.nama), `<span class="mono">${esc(u.id_user)}</span> · ${u.peran === 'plp' ? 'PLP ' + esc(labsOf(u).map(labName).join(', ')) : u.peran === 'admin' ? 'Admin / Kepala Lab' : 'Mahasiswa'}`)}
     <div class="note">${isDemo() ? '<b>Mode demo.</b> Data contoh tersimpan di browser ini saja. Isi <span class="mono">API_URL</span> di kode untuk terhubung ke Google Sheet.' : 'Terhubung ke Google Sheet Jurusan Gizi.'}</div>
     <div class="actions"><button class="btn" data-go="cover">Halaman depan & panduan</button>${isDemo() ? '<button class="btn" data-act="reset">Kembalikan data demo</button>' : ''}<button class="btn danger" data-act="logout">Keluar</button></div>`);
 }

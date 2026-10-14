@@ -9,6 +9,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap">
+<script src="https://jurusan-gizi.github.io/sso.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -841,6 +842,7 @@ function renderLogin() {
       <button class="btn primary block" type="submit">Masuk</button>
       ${mhs ? '<p class="muted small">Masuk dengan NIM dan tahun lahir (4 angka). NIM belum terdaftar? Hubungi admin laboratorium jurusan.</p>' : ''}
     </form>
+    ${window.GiziSSO && !isDemo() ? `<button type="button" class="btn block" id="btnGiziLink">Masuk lewat Gizi-Link (login sekali)</button>` : ''}
     ${isDemo() ? `<div class="demo-pick"><p class="section-title">Mode demo — coba sebagai</p>
       ${mhs ? Demo.mahasiswa().map(m => `<button type="button" data-demo="${esc(m.nim)}" data-pin="${esc(m.thn_lahir)}"><span class="avatar">${initials(m.nama)}</span>
         <span style="flex:1;min-width:0"><b>${esc(m.nama)}</b><br><span class="muted small">${esc(m.prodi)} · <span class="mono">${esc(m.nim)}</span> · lahir ${esc(m.thn_lahir)}</span></span></button>`).join('')
@@ -855,6 +857,7 @@ function renderLogin() {
     S.view = isStaff() ? 'dash' : 'katalog'; await refresh();
     toast(`Selamat datang, ${r.user.nama.split(',')[0]}.`);
   };
+  $('#btnGiziLink')?.addEventListener('click', () => GiziSSO.masuk(location.href.split('#')[0], mhs ? 'mahasiswa' : 'staf'));
   $('#fLogin').addEventListener('submit', e => { e.preventDefault(); doLogin($('#lgId').value, $('#lgPin')?.value || '').catch(() => { }); });
   document.querySelectorAll('[data-demo]').forEach(b => b.addEventListener('click', () => doLogin(b.dataset.demo, b.dataset.pin || '1234').catch(() => { })));
 }
@@ -863,7 +866,7 @@ async function enterApp() {
   S.user = s.user; S.token = s.token; S.view = isStaff() ? 'dash' : 'katalog';
   try { await refresh(); } catch (e) { store.del('silab_sess'); S.user = null; renderLogin(); }
 }
-function logout(silent) { store.del('silab_sess'); S.user = S.token = S.data = null; S.cart = { id_lab: null, items: {} }; closeModal(); PUB = null; renderCover(); if (silent) toast('Sesi berakhir, silakan masuk lagi.'); }
+function logout(silent) { if (!silent && window.GiziSSO) GiziSSO.keluar(false); store.del('silab_sess'); S.user = S.token = S.data = null; S.cart = { id_lab: null, items: {} }; closeModal(); PUB = null; renderCover(); if (silent) toast('Sesi berakhir, silakan masuk lagi.'); }
 
 /* ===================== SHELL ===================== */
 function navItems() {
@@ -1419,7 +1422,45 @@ document.addEventListener('submit', async e => {
 /* ===================== MULAI ===================== */
 // pesan error sudah tampil lewat toast; cegah log 'unhandled rejection'
 window.addEventListener('unhandledrejection', e => e.preventDefault());
-renderCover(); // aplikasi selalu dibuka dari halaman depan
+mulaiSilab();
+/** Login sekali: kalau mahasiswa sudah masuk di Gizi-Link, langsung masuk ke SILAB. */
+async function mulaiSilab() {
+  const sso = window.GiziSSO && !isDemo() ? GiziSSO.get() : null;
+  if (sso) {
+    const sess = store.get('silab_sess');
+    const sesiMhs = sess && sess.user && sess.user.peran === 'mahasiswa';
+    const nimSso = GiziSSO.normNim(sso.nim);
+    // Akun staf (PLP/admin) di perangkat ini tidak ditimpa.
+    if (!sess || (sesiMhs && GiziSSO.normNim(sess.user.id_user) !== nimSso)) {
+      try {
+        const r = await api('loginSso', { sso: sso.token });
+        store.set('silab_sess', { user: r.user, token: r.token });
+      } catch (e) {
+        toast(e.message || 'Gagal masuk otomatis. Silakan masuk manual.');
+        return renderCover();
+      }
+    }
+    const now = store.get('silab_sess');
+    if (now && now.user && now.user.peran === 'mahasiswa') return enterApp();
+  }
+  const staf = window.GiziSSO && GiziSSO.getStaf && !isDemo() ? GiziSSO.getStaf() : null;
+  if (staf && staf.silab) {
+    const sess = store.get('silab_sess');
+    const idStaf = String(staf.id).replace(/['\s]/g, '').toLowerCase();
+    const sama = sess && sess.user && String(sess.user.id_user).replace(/['\s]/g, '').toLowerCase() === idStaf;
+    if (!sama) {
+      try {
+        const r = await api('loginSsoStaf', { sso: staf.token });
+        store.set('silab_sess', { user: r.user, token: r.token });
+      } catch (e) {
+        toast(e.message || 'Gagal masuk otomatis. Silakan masuk manual.');
+        return renderCover();
+      }
+    }
+    return enterApp();
+  }
+  renderCover(); // aplikasi dibuka dari halaman depan
+}
 if ('serviceWorker' in navigator && location.protocol === 'https:' && !/claude|anthropic/.test(location.hostname)) {
   navigator.serviceWorker.register('sw.js').catch(() => { });
 }

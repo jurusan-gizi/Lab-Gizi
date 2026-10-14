@@ -694,7 +694,7 @@ const S = {
   user: null, token: null, data: null, view: null, lab: 'ALL', q: '', filter: 'aksi',
   cart: { id_lab: null, items: {} }, busy: false
 };
-const isStaff = () => S.user && S.user.peran !== 'mahasiswa';
+const isStaff = () => S.user && S.user.peran !== 'mahasiswa' && S.user.peran !== 'dosen';
 const labName = id => (S.data?.labs.find(l => l.id_lab === id) || {}).nama_lab || id;
 const labShort = id => labName(id).replace(/^Lab\.\s*/, '');
 const isPlp = () => S.user && S.user.peran === 'plp';
@@ -893,7 +893,7 @@ function render() {
   if (!S.user) return renderCover();
   const V = { katalog: vKatalog, pinjam: vPinjam, permohonan: vPermohonan, jadwal: vJadwal, dash: vDash, alat: vAlat, bahan: vBahan };
   if (!V[S.view]) S.view = isStaff() ? 'dash' : 'katalog';
-  const roleTxt = S.user.peran === 'plp' ? 'PLP · ' + myLabs().map(labShort).join(', ') : S.user.peran === 'admin' ? 'Admin' : 'Mahasiswa';
+  const roleTxt = S.user.peran === 'plp' ? 'PLP · ' + myLabs().map(labShort).join(', ') : S.user.peran === 'admin' ? 'Admin' : S.user.peran === 'dosen' ? 'Dosen' : 'Mahasiswa';
   document.getElementById('app').innerHTML = `
   <header class="top"><div class="top-in">
     <div class="logo-chip"><img src="${LOGO}" alt="Kemenkes Poltekkes Makassar"></div>
@@ -1362,7 +1362,7 @@ function exportCSV() {
 /* ===================== AKUN ===================== */
 function openAkun() {
   const u = S.user;
-  modal(`${head(esc(u.nama), `<span class="mono">${esc(u.id_user)}</span> · ${u.peran === 'plp' ? 'PLP ' + esc(labsOf(u).map(labName).join(', ')) : u.peran === 'admin' ? 'Admin / Kepala Lab' : 'Mahasiswa'}`)}
+  modal(`${head(esc(u.nama), `<span class="mono">${esc(u.id_user)}</span> · ${u.peran === 'plp' ? 'PLP ' + esc(labsOf(u).map(labName).join(', ')) : u.peran === 'admin' ? 'Admin / Kepala Lab' : u.peran === 'dosen' ? 'Dosen' : 'Mahasiswa'}`)}
     <div class="note">${isDemo() ? '<b>Mode demo.</b> Data contoh tersimpan di browser ini saja. Isi <span class="mono">API_URL</span> di kode untuk terhubung ke Google Sheet.' : 'Terhubung ke Google Sheet Jurusan Gizi.'}</div>
     <div class="actions"><button class="btn" data-go="cover">Halaman depan & panduan</button>${isDemo() ? '<button class="btn" data-act="reset">Kembalikan data demo</button>' : ''}<button class="btn danger" data-act="logout">Keluar</button></div>`);
 }
